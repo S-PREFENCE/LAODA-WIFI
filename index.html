@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>劳大 · 劳大象棋</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- 棋盘区 -->
+    <section class="stage">
+      <div class="board-frame">
+        <div id="board" class="board">
+          <svg id="board-svg" class="board-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div id="pieces" class="pieces"></div>
+          <div id="overlays" class="overlays"></div>
+        </div>
+      </div>
+      <div id="banner" class="banner hidden"></div>
+    </section>
+
+    <!-- 侧边功能栏 -->
+    <aside class="sidebar">
+      <header class="brand">
+        <img class="brand-mark" src="assets/logo.jpg" alt="劳大" />
+        <div class="brand-text">
+          <h1>劳大象棋</h1>
+          <p>双人 · 人机 · 残局 · 联机</p>
+        </div>
+      </header>
+
+      <div class="panel">
+        <div class="panel-title">对局模式</div>
+        <div class="seg" id="mode-seg">
+          <button class="seg-btn active" data-mode="pvp">双人</button>
+          <button class="seg-btn" data-mode="pvai">人机</button>
+          <button class="seg-btn" data-mode="endgame">残局</button>
+          <button class="seg-btn" data-mode="online">联机</button>
+        </div>
+      </div>
+
+      <!-- 人机设置 -->
+      <div class="panel" id="pvai-panel">
+        <div class="panel-title">难度</div>
+        <div class="seg" id="diff-seg">
+          <button class="seg-btn" data-diff="easy">入门</button>
+          <button class="seg-btn active" data-diff="medium">进阶</button>
+          <button class="seg-btn" data-diff="hard">大师</button>
+        </div>
+        <div class="panel-title">你执</div>
+        <div class="seg" id="side-seg">
+          <button class="seg-btn active" data-side="red">红先</button>
+          <button class="seg-btn" data-side="black">黑后</button>
+        </div>
+      </div>
+
+      <!-- 残局关卡 -->
+      <div class="panel hidden" id="endgame-panel">
+        <div class="panel-title">残局挑战 · 自由选关</div>
+        <div class="levels" id="levels"></div>
+      </div>
+
+      <!-- 联机对战 -->
+      <div class="panel hidden" id="online-panel">
+        <div class="panel-title">联机对战</div>
+        <div class="online-status" id="online-status">未连接</div>
+        <div class="room-box">
+          <div class="room-label">房间码</div>
+          <div class="room-code" id="online-code">----</div>
+        </div>
+        <button id="btn-create" class="act wide">创建房间</button>
+        <div class="join-row">
+          <input id="online-join" class="join-input" type="text" maxlength="6" placeholder="输入房间码" />
+          <button id="btn-join" class="act">加入</button>
+        </div>
+        <button id="btn-resign" class="act wide subtle">认输</button>
+        <div class="online-tip">主机需先运行 server.js / server.py，然后用其「内网访问」地址打开本页。</div>
+      </div>
+
+      <div class="panel status-panel">
+        <div id="turn-indicator" class="turn">
+          <span class="turn-dot red"></span><span id="turn-text">红方行棋</span>
+        </div>
+        <div id="message" class="message">点击棋子开始对弈</div>
+      </div>
+
+      <div class="panel btns">
+        <button id="btn-undo" class="act">悔棋</button>
+        <button id="btn-restart" class="act">重新开始</button>
+        <button id="btn-sound" class="act">声音：开</button>
+      </div>
+
+      <div class="panel" id="theme-panel">
+        <div class="panel-title">界面主题</div>
+        <div class="seg swatches" id="theme-seg">
+          <button class="seg-btn active" data-theme="lacquer" title="漆木"><span class="swatch lacquer"></span>漆木</button>
+          <button class="seg-btn" data-theme="jade" title="玉绿"><span class="swatch jade"></span>玉绿</button>
+          <button class="seg-btn" data-theme="ink" title="水墨"><span class="swatch ink"></span>水墨</button>
+          <button class="seg-btn" data-theme="royal" title="紫霄"><span class="swatch royal"></span>紫霄</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">着法记录</div>
+        <ol id="history" class="history"></ol>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">俘获</div>
+        <div class="captured">
+          <div class="cap-col"><span class="cap-label">红方俘</span><div id="cap-red" class="cap-list"></div></div>
+          <div class="cap-col"><span class="cap-label">黑方俘</span><div id="cap-black" class="cap-list"></div></div>
+        </div>
+      </div>
+
+      <footer class="foot">纯前端 · 劳大象棋 · 可离线游玩</footer>
+    </aside>
+  </div>
+
+  <script src="js/constants.js"></script>
+  <script src="js/board.js"></script>
+  <script src="js/rules.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/endgames.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/net.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

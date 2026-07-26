@@ -1,0 +1,5 @@
+# 联机版劳大象棋 — 仓库忽略项
+__pycache__/
+*.pyc
+.DS_Store
+.workbuddy/
