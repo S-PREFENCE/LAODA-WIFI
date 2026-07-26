@@ -1,5 +1,5 @@
-/* audio.js — Web Audio 程序化合成音效（零音频资源文件）
- * 落子/吃子/将军/胜负/非法/按钮，带全局静音开关。
+/* audio.js — 音效：落子/吃子/胜负/非法/按钮为程序化合成；将军使用音频文件
+ * 带全局静音开关。
  * 浏览器自动播放策略：首次用户交互后初始化并 resume。 */
 (function (root) {
   var XQ = root.XQ = root.XQ || {};
@@ -7,6 +7,11 @@
   var ctx = null;
   var master = null;
   var muted = false;
+  var checkAudio = null;
+  try {
+    checkAudio = new Audio('assets/check.mp3');
+    checkAudio.preload = 'auto';
+  } catch (e) { checkAudio = null; }
 
   function ensure() {
     if (ctx) {
@@ -68,6 +73,17 @@
       tone({ freq: 300, freqEnd: 110, dur: 0.11, type: 'square', gain: 0.16, delay: 0.05 });
     },
     check: function () {
+      // 将军提示音：优先播放音频文件（男人man1），其余音效保持合成
+      if (muted) return;
+      if (checkAudio) {
+        try {
+          checkAudio.currentTime = 0;
+          var pr = checkAudio.play();
+          if (pr && pr.catch) pr.catch(function () {});
+          return;
+        } catch (e) { /* 音频播放失败则回退到合成音 */ }
+      }
+      // 回退：音频不可用时仍用合成音，保证有将军提示
       tone({ freq: 880, dur: 0.12, type: 'sawtooth', gain: 0.25 });
       tone({ freq: 1175, dur: 0.14, type: 'sawtooth', gain: 0.25, delay: 0.12 });
     },
@@ -87,7 +103,10 @@
 
   XQ.Audio = {
     // 首次交互时调用，解锁音频
-    unlock: function () { ensure(); },
+    unlock: function () {
+      ensure();
+      if (checkAudio) { try { checkAudio.load(); } catch (e) {} }
+    },
     play: function (name) { if (SOUNDS[name]) SOUNDS[name](); },
     setMuted: function (m) { muted = !!m; },
     isMuted: function () { return muted; },
