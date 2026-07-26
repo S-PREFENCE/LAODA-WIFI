@@ -59,6 +59,22 @@ def gen_code():
             return code
 
 
+def ser_piece(p):
+    return None if p is None else (p[0][0] + p[1])
+
+
+def serialize_board(board):
+    return [[ser_piece(cell) for cell in row] for row in board]
+
+
+def serialize_history(hist):
+    return [{'from': h['from'], 'to': h['to'], 'side': h['side'], 'piece': ser_piece(h['piece'])} for h in hist]
+
+
+def opposite(c):
+    return 'black' if c == 'red' else 'red'
+
+
 # ---------- WebSocket 帧编解码（RFC 6455，最小实现） ----------
 def encode_frame(data, opcode=0x1):
     if isinstance(data, str):
@@ -141,6 +157,8 @@ def make_room():
         room = {
             'code': code, 'sockets': [], 'colors': {}, 'board': initial_board(),
             'turn': 'red', 'started': False, 'finished': False, 'ply': 0,
+            'history': [], 'captured_red': [], 'captured_black': [],
+            'pending_draw': None, 'pending_undo': None,
         }
         rooms[code] = room
         used_codes.add(code)
@@ -151,9 +169,14 @@ def remove_socket(room, sock):
     with rooms_lock:
         if sock in room['sockets']:
             room['sockets'].remove(sock)
+        room['pending_draw'] = None
+        room['pending_undo'] = None
         if len(room['sockets']) == 0:
-            rooms.pop(room['code'], None)
-            used_codes.discard(room['code'])
+            # 仅当房间从未开局才彻底删除并释放房间码；
+            # 已开局的对局保留房间与棋盘，允许凭房间码重连回归。
+            if not room['started']:
+                rooms.pop(room['code'], None)
+                used_codes.discard(room['code'])
         else:
             for s in room['sockets']:
                 send_json(s, {'type': 'opponent_left'})
@@ -190,10 +213,24 @@ def handle_message(room, conn, msg):
             send_json(conn, {'type': 'error', 'msg': '不可自吃'})
             return
         # 应用（仅结构层面：搬子），规则合法性由客户端保证
+        captured = room['board'][tr][tc]
+        moved_piece = (piece[0], piece[1])
         room['board'][tr][tc] = piece
         room['board'][fr][fc] = None
+        room['history'].append({
+            'from': f, 'to': t, 'side': room['colors'][conn],
+            'piece': moved_piece,
+            'captured': captured,
+        })
+        if captured is not None:
+            if captured[0] == 'black':
+                room['captured_red'].append(captured)
+            else:
+                room['captured_black'].append(captured)
         room['ply'] += 1
         room['turn'] = 'black' if room['turn'] == 'red' else 'red'
+        room['pending_draw'] = None
+        room['pending_undo'] = None
         broadcast(room, {'type': 'move', 'from': f, 'to': t, 'color': room['colors'][conn], 'ply': room['ply']}, except_sock=conn)
         return
 
@@ -202,7 +239,95 @@ def handle_message(room, conn, msg):
             return
         room['finished'] = True
         winner = 'black' if room['colors'][conn] == 'red' else 'red'
+        room['winner'] = winner
         broadcast(room, {'type': 'resigned', 'winner': winner})
+        return
+
+    # ---------- 求和（双方确认） ----------
+    if mtype == 'draw_offer':
+        if not room['started'] or room['finished']:
+            return
+        room['pending_draw'] = room['colors'][conn]
+        broadcast(room, {'type': 'draw_offer', 'from': room['colors'][conn]}, except_sock=conn)
+        return
+    if mtype == 'draw_accept':
+        if not room['started'] or room['finished'] or not room['pending_draw']:
+            return
+        room['finished'] = True
+        room['winner'] = 'draw'
+        room['pending_draw'] = None
+        room['pending_undo'] = None
+        broadcast(room, {'type': 'game_over', 'winner': 'draw'})
+        return
+    if mtype == 'draw_decline':
+        room['pending_draw'] = None
+        broadcast(room, {'type': 'draw_decline'}, except_sock=conn)
+        return
+
+    # ---------- 悔棋（双方确认，服务端权威回滚） ----------
+    if mtype == 'undo_request':
+        if not room['started'] or room['finished']:
+            return
+        if len(room['history']) == 0:
+            send_json(conn, {'type': 'error', 'msg': '暂无可悔棋步'})
+            return
+        room['pending_undo'] = room['colors'][conn]
+        broadcast(room, {'type': 'undo_request', 'from': room['colors'][conn]}, except_sock=conn)
+        return
+    if mtype == 'undo_accept':
+        if not room['started'] or room['finished'] or not room['pending_undo']:
+            return
+        if len(room['history']) == 0:
+            room['pending_undo'] = None
+            return
+        last = room['history'].pop()
+        piece = last['piece']
+        captured = last['captured']
+        room['board'][last['to']['r']][last['to']['c']] = captured
+        room['board'][last['from']['r']][last['from']['c']] = (piece[0], piece[1])
+        room['turn'] = last['side']
+        room['ply'] = max(0, room['ply'] - 1)
+        if captured is not None:
+            if captured[0] == 'black':
+                room['captured_red'].pop()
+            else:
+                room['captured_black'].pop()
+        room['pending_undo'] = None
+        room['pending_draw'] = None
+        st = {
+            'type': 'state', 'board': serialize_board(room['board']), 'turn': room['turn'],
+            'ply': room['ply'], 'history': serialize_history(room['history']),
+            'captured_red': [ser_piece(p) for p in room['captured_red']],
+            'captured_black': [ser_piece(p) for p in room['captured_black']],
+            'finished': False, 'winner': None, 'appliedUndo': True, 'ready': True,
+        }
+        broadcast(room, st)
+        return
+    if mtype == 'undo_decline':
+        room['pending_undo'] = None
+        broadcast(room, {'type': 'undo_decline'}, except_sock=conn)
+        return
+
+    # ---------- 再来一局（房间复用） ----------
+    if mtype == 'rematch':
+        if not room['started']:
+            return
+        if len(room['sockets']) < 2:
+            send_json(conn, {'type': 'error', 'msg': '对手已离开，无法再来一局'})
+            return
+        if not room['finished']:
+            return
+        room['board'] = initial_board()
+        room['turn'] = 'red'
+        room['ply'] = 0
+        room['history'] = []
+        room['captured_red'] = []
+        room['captured_black'] = []
+        room['finished'] = False
+        room['pending_draw'] = None
+        room['pending_undo'] = None
+        for s in room['sockets']:
+            send_json(s, {'type': 'start', 'color': room['colors'][s]})
         return
 
 
@@ -297,12 +422,46 @@ def ws_loop(conn, addr):
                             rooms.pop(room['code'], None)
                             used_codes.discard(room['code'])
                     room = target
+                    # 分配颜色：已有 1 人 → 占空缺颜色（支持凭码回归）；0 人 → 占红方
+                    if len(room['sockets']) == 1:
+                        existing = next(iter(room['sockets']))
+                        assign_color = 'black' if room['colors'][existing] == 'red' else 'red'
+                    else:
+                        assign_color = 'red'
                     room['sockets'].append(conn)
-                    room['colors'][conn] = 'black'
+                    room['colors'][conn] = assign_color
                     room['started'] = True
-                    send_json(conn, {'type': 'joined', 'room': room['code'], 'color': 'black'})
-                    for s in room['sockets']:
-                        send_json(s, {'type': 'start', 'color': room['colors'][s]})
+                    if len(room['sockets']) == 2:
+                        # 先发 start(着色+可走)，再发 state(权威棋盘)，兼容首局与中途重连
+                        for s in room['sockets']:
+                            send_json(s, {'type': 'start', 'color': room['colors'][s]})
+                        # 通知加入者其加入成功（房间码 + 颜色），与原单局流程一致
+                        send_json(conn, {'type': 'joined', 'room': room['code'], 'color': assign_color})
+                        if room['finished']:
+                            room['board'] = initial_board()
+                            room['turn'] = 'red'; room['ply'] = 0; room['history'] = []
+                            room['captured_red'] = []; room['captured_black'] = []
+                            room['finished'] = False
+                            room['pending_draw'] = None; room['pending_undo'] = None
+                        else:
+                            st = {
+                                'type': 'state', 'board': serialize_board(room['board']), 'turn': room['turn'],
+                                'ply': room['ply'], 'history': serialize_history(room['history']),
+                                'captured_red': [ser_piece(p) for p in room['captured_red']],
+                                'captured_black': [ser_piece(p) for p in room['captured_black']],
+                                'finished': False, 'winner': None, 'resumed': room['ply'] > 0, 'ready': True,
+                            }
+                            for s in room['sockets']:
+                                send_json(s, st)
+                    else:
+                        # 仅一人凭码回归，等待对手：发 start(着色) + state(当前棋盘, 未就位)
+                        send_json(conn, {'type': 'start', 'color': assign_color})
+                        send_json(conn, {'type': 'state', 'board': serialize_board(room['board']), 'turn': room['turn'],
+                            'ply': room['ply'], 'history': serialize_history(room['history']),
+                            'captured_red': [ser_piece(p) for p in room['captured_red']],
+                            'captured_black': [ser_piece(p) for p in room['captured_black']],
+                            'finished': room['finished'], 'winner': room.get('winner'), 'resumed': True, 'ready': False})
+                        send_json(conn, {'type': 'joined', 'room': room['code'], 'color': assign_color, 'waiting': True})
                 else:
                     handle_message(room, conn, msg)
     except Exception:

@@ -29,6 +29,8 @@
     onlineColor: null,    // 本端执 'red' / 'black'
     onlineReady: false,   // 双方已就位，可走子
     onlineRoom: null,     // 房间码
+    pendingOut: null,     // 本端已发出待对方确认的请求：'draw' / 'undo'
+    pendingIn: null,      // 收到对方待本端确认的请求：'draw' / 'undo'
 
     /* ---------- 初始化 ---------- */
     init: function () {
@@ -44,7 +46,12 @@
         onLevelClick: function (id) { self.loadLevel(id); },
         onNetCreate: function () { self.onNetCreate(); },
         onNetJoin: function (code) { self.onNetJoin(code); },
-        onNetResign: function () { self.onNetResign(); }
+        onNetResign: function () { self.onNetResign(); },
+        onNetDraw: function () { self.onNetDraw(); },
+        onNetUndoReq: function () { self.onNetUndoReq(); },
+        onNetRematch: function () { self.onNetRematch(); },
+        onNetReqAccept: function () { self.onNetReqAccept(); },
+        onNetReqDecline: function () { self.onNetReqDecline(); }
       });
       if (XQ.Net) XQ.Net.init({
         onStatus: function (s) { self.onNetStatus(s); },
@@ -55,6 +62,11 @@
         onOpponentLeft: function (m) { self.onOpponentLeft(m); },
         onGameOver: function (m) { self.onGameOver(m); },
         onResigned: function (m) { self.onResigned(m); },
+        onState: function (m) { self.onNetState(m); },
+        onDrawOffer: function (m) { self.onNetDrawOffer(m); },
+        onDrawDecline: function (m) { self.onNetDrawDecline(m); },
+        onUndoRequest: function (m) { self.onNetUndoRequest(m); },
+        onUndoDecline: function (m) { self.onNetUndoDecline(m); },
         onError: function (m) { self.onNetError(m); }
       });
       XQ.UI.setSoundLabel(!XQ.Audio.isMuted());
@@ -124,7 +136,8 @@
 
     restart: function () {
       if (this.mode === 'online') {
-        this.message = '联机对局中暂不支持重新开始，可重开新房间';
+        if (this.gameOver) { this.onNetRematch(); return; }
+        this.message = '对局进行中：可认输、求和或悔棋；结束后再「再来一局」';
         this.messageType = 'alert';
         this.render();
         return;
@@ -166,6 +179,130 @@
       this.render();
     },
 
+    /* ---------- 求和 / 悔棋（双方确认） ---------- */
+    onNetDraw: function () {
+      if (this.mode !== 'online' || !this.onlineReady || this.gameOver) return;
+      if (this.pendingOut) { this.message = '已发送请求，等待对方回应…'; this.render(); return; }
+      this.pendingOut = 'draw';
+      XQ.Net.drawOffer();
+      this.message = '已发送和棋请求，等待对方同意…';
+      this.messageType = 'alert';
+      this.render();
+    },
+
+    onNetDrawOffer: function (m) {
+      if (this.mode !== 'online') return;
+      this.pendingIn = 'draw';
+      this.render();
+    },
+
+    onNetDrawDecline: function (m) {
+      if (this.mode !== 'online') return;
+      this.pendingOut = null;
+      this.message = '对方拒绝了和棋请求';
+      this.messageType = 'alert';
+      this.render();
+    },
+
+    onNetUndoReq: function () {
+      if (this.mode !== 'online' || !this.onlineReady || this.gameOver) return;
+      if (this.history.length === 0) { this.message = '暂无可悔棋步'; this.messageType = 'alert'; this.render(); return; }
+      if (this.pendingOut) { this.message = '已发送请求，等待对方回应…'; this.render(); return; }
+      this.pendingOut = 'undo';
+      XQ.Net.undoRequest();
+      this.message = '已发送悔棋请求，等待对方同意…';
+      this.messageType = 'alert';
+      this.render();
+    },
+
+    onNetUndoRequest: function (m) {
+      if (this.mode !== 'online') return;
+      this.pendingIn = 'undo';
+      this.render();
+    },
+
+    onNetUndoDecline: function (m) {
+      if (this.mode !== 'online') return;
+      this.pendingOut = null;
+      this.message = '对方拒绝了悔棋请求';
+      this.messageType = 'alert';
+      this.render();
+    },
+
+    // 收到对方请求后，本端点击「同意 / 拒绝」
+    onNetReqAccept: function () {
+      if (this.mode !== 'online' || !this.pendingIn) return;
+      var kind = this.pendingIn;
+      this.pendingIn = null;
+      if (kind === 'draw') XQ.Net.drawAccept();
+      else XQ.Net.undoAccept();
+      this.message = (kind === 'draw') ? '已同意和棋' : '已同意悔棋';
+      this.messageType = 'alert';
+      this.render();
+    },
+
+    onNetReqDecline: function () {
+      if (this.mode !== 'online' || !this.pendingIn) return;
+      var kind = this.pendingIn;
+      this.pendingIn = null;
+      if (kind === 'draw') XQ.Net.drawDecline();
+      else XQ.Net.undoDecline();
+      this.message = (kind === 'draw') ? '已拒绝和棋' : '已拒绝悔棋';
+      this.messageType = 'alert';
+      this.render();
+    },
+
+    onNetRematch: function () {
+      if (this.mode !== 'online' || !this.gameOver) return;
+      XQ.Net.rematch();
+      this.message = '已请求再来一局，等待对手…';
+      this.messageType = 'alert';
+      this.render();
+    },
+
+    // 服务端下发的全量状态（断线重连 / 悔棋回滚后恢复棋盘）
+    onNetState: function (st) {
+      if (this.mode !== 'online') return;
+      this.applyOnlineState(st);
+      var label;
+      if (st.appliedUndo) label = '悔棋成功，已撤回上一步';
+      else if (st.resumed) label = '已恢复对局';
+      else label = '对局开始';
+      this.message = st.ready ? (label + '，' + (this.turn === this.onlineColor ? '轮到你走' : '等待对手')) : '已恢复棋盘，等待对手加入…';
+      this.messageType = '';
+      this.gameOver = false; this.winner = null; this.banner = null;
+      this.render();
+    },
+
+    applyOnlineState: function (st) {
+      var self = this;
+      this.board = new XQ.Board();
+      for (var r = 0; r < 10; r++) {
+        for (var c = 0; c < 9; c++) {
+          var ch = st.board[r][c];
+          if (ch) this.board.set(r, c, { side: ch[0] === 'r' ? 'red' : 'black', type: ch[1] });
+        }
+      }
+      this.turn = st.turn;
+      this.history = (st.history || []).map(function (h) {
+        var fromPiece = h.piece ? { side: h.piece[0] === 'r' ? 'red' : 'black', type: h.piece[1] } : null;
+        return {
+          move: { from: h.from, to: h.to },
+          captured: null,
+          side: h.side,
+          text: self.notation({ from: h.from, to: h.to }, h.side, fromPiece)
+        };
+      });
+      this.capturedRed = (st.capturedRed || []).filter(Boolean).map(function (p) { return { side: 'black', type: p[1] }; });
+      this.capturedBlack = (st.capturedBlack || []).filter(Boolean).map(function (p) { return { side: 'red', type: p[1] }; });
+      this.lastMove = this.history.length
+        ? { from: this.history[this.history.length - 1].move.from, to: this.history[this.history.length - 1].move.to }
+        : null;
+      this.checkPos = XQ.isInCheck(this.board, this.turn) ? this.board.findKing(this.turn) : null;
+      this.onlineReady = !!st.ready;
+      this.clearSelection();
+    },
+
     onNetCreated: function (m) {
       this.onlineColor = 'red';
       this.onlineRoom = m.room;
@@ -197,13 +334,18 @@
 
     onRemoteMove: function (m) {
       if (!this.onlineReady) return;
+      // 任一步走子后，悬而未决的求和/悔棋请求作废
+      this.pendingOut = null;
+      this.pendingIn = null;
       this.applyMove({ from: m.from, to: m.to }, { remote: true });
       this.render();
     },
 
     onOpponentLeft: function () {
       this.onlineReady = false;
-      this.message = '对手已离开房间，对局结束';
+      this.pendingOut = null;
+      this.pendingIn = null;
+      this.message = '对手已离开。可凭房间码 ' + (this.onlineRoom || '----') + ' 重新连回本局，或等待其返回。';
       this.messageType = 'alert';
       this.render();
     },
@@ -337,8 +479,8 @@
         if (w === this.humanSide) { title = '你 赢 了 !'; sub = '击败了' + this.diffName() + '对手'; win = true; }
         else { title = '你 输 了'; sub = '再战一局？'; }
       } else {
-        title = (w === 'red' ? '红方胜 !' : '黑方胜 !');
-        sub = '点击重新开始'; win = true;
+        if (w === 'draw') { title = '和 棋'; sub = '握手言和'; win = true; }
+        else { title = (w === 'red' ? '红方胜 !' : '黑方胜 !'); sub = '点击重新开始'; win = true; }
       }
       this.banner = { title: title, sub: sub };
       XQ.Audio.play(win ? 'win' : 'lose');
@@ -376,9 +518,7 @@
     /* ---------- 悔棋 ---------- */
     undo: function () {
       if (this.mode === 'online') {
-        this.message = '联机模式不支持悔棋';
-        this.messageType = 'alert';
-        this.render();
+        this.onNetUndoReq();
         return;
       }
       if (this.history.length === 0) return;
@@ -452,6 +592,8 @@
         lastMove: this.lastMove,
         checkPos: this.checkPos,
         turn: this.turn,
+        mode: this.mode,
+        gameOver: this.gameOver,
         message: this.message,
         messageType: this.messageType,
         history: this.history.map(function (h) {
@@ -460,7 +602,13 @@
         capturedRed: this.capturedRed,
         capturedBlack: this.capturedBlack,
         levels: this.levelList(),
-        banner: this.banner
+        banner: this.banner,
+        online: {
+          room: this.onlineRoom,
+          ready: this.onlineReady,
+          pendingOut: this.pendingOut,
+          pendingIn: this.pendingIn
+        }
       });
     }
   };

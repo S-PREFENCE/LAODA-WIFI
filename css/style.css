@@ -304,6 +304,17 @@ html, body {
 .join-input:focus { outline: none; border-color: var(--gold); }
 .online-tip { font-size: 11px; color: var(--text-dim); margin-top: 10px; line-height: 1.5; }
 
+.online-actions { display: flex; gap: 6px; margin-top: 8px; }
+.online-request {
+  margin-top: 10px; padding: 10px; border-radius: 10px;
+  border: 1px solid rgba(217,178,90,0.45);
+  background: rgba(217,178,90,0.10);
+}
+.online-request .req-text { font-size: 13px; color: var(--gold); margin-bottom: 8px; }
+.online-request .req-btns { display: flex; gap: 6px; }
+.act.dim, .act:disabled { opacity: 0.4; cursor: not-allowed; }
+.act.dim:hover, .act:disabled:hover { border-color: var(--glass-line); background: rgba(255,255,255,0.04); }
+
 .hidden { display: none !important; }
 
 .piece.cap-anim { animation: capFade 0.28s ease forwards; }

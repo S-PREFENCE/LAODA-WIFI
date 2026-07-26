@@ -76,6 +76,18 @@
           <button id="btn-join" class="act">加入</button>
         </div>
         <button id="btn-resign" class="act wide subtle">认输</button>
+        <div class="online-actions">
+          <button id="btn-draw" class="act">求和</button>
+          <button id="btn-undo-req" class="act">悔棋</button>
+        </div>
+        <button id="btn-rematch" class="act wide hidden">再来一局</button>
+        <div id="online-request" class="online-request hidden">
+          <div id="online-request-text" class="req-text"></div>
+          <div class="req-btns">
+            <button id="btn-req-accept" class="act">同意</button>
+            <button id="btn-req-decline" class="act subtle">拒绝</button>
+          </div>
+        </div>
         <div class="online-tip">主机需先运行 server.js / server.py，然后用其「内网访问」地址打开本页。</div>
       </div>
 

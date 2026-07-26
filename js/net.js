@@ -56,9 +56,14 @@
         case 'joined':        if (cb.onJoined) cb.onJoined(msg); break;
         case 'start':         if (cb.onStart) cb.onStart(msg); break;
         case 'move':          if (cb.onRemoteMove) cb.onRemoteMove(msg); break;
+        case 'state':         if (cb.onState) cb.onState(msg); break;
         case 'opponent_left': if (cb.onOpponentLeft) cb.onOpponentLeft(msg); break;
         case 'game_over':     if (cb.onGameOver) cb.onGameOver(msg); break;
         case 'resigned':      if (cb.onResigned) cb.onResigned(msg); break;
+        case 'draw_offer':    if (cb.onDrawOffer) cb.onDrawOffer(msg); break;
+        case 'draw_decline':  if (cb.onDrawDecline) cb.onDrawDecline(msg); break;
+        case 'undo_request':  if (cb.onUndoRequest) cb.onUndoRequest(msg); break;
+        case 'undo_decline':  if (cb.onUndoDecline) cb.onUndoDecline(msg); break;
         case 'error':         if (cb.onError) cb.onError(msg); break;
         default: break;
       }
@@ -68,6 +73,13 @@
     joinRoom: function (code) { queue.push({ type: 'join', room: (code || '').toUpperCase() }); flush(); },
     sendMove: function (move) { queue.push({ type: 'move', from: move.from, to: move.to }); flush(); },
     resign: function () { queue.push({ type: 'resign' }); flush(); },
+    drawOffer: function () { queue.push({ type: 'draw_offer' }); flush(); },
+    drawAccept: function () { queue.push({ type: 'draw_accept' }); flush(); },
+    drawDecline: function () { queue.push({ type: 'draw_decline' }); flush(); },
+    undoRequest: function () { queue.push({ type: 'undo_request' }); flush(); },
+    undoAccept: function () { queue.push({ type: 'undo_accept' }); flush(); },
+    undoDecline: function () { queue.push({ type: 'undo_decline' }); flush(); },
+    rematch: function () { queue.push({ type: 'rematch' }); flush(); },
     disconnect: function () { if (ws) { try { ws.close(); } catch (e) {} } ws = null; }
   };
 

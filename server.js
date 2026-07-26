@@ -127,6 +127,24 @@ function sendWs(sock, obj, opcode) {
   try { sock.write(encodeFrame(JSON.stringify(obj), opcode || 0x1)); } catch (e) {}
 }
 
+/* 棋盘/棋子序列化（供房间复用、悔棋回滚、断线重连时下发全量状态） */
+function serPiece(p) { return p ? p.side[0] + p.type : null; }
+function serializeBoard(board) {
+  var g = board.grid, arr = [];
+  for (var r = 0; r < 10; r++) {
+    var row = [];
+    for (var c = 0; c < 9; c++) { var p = g[r][c]; row.push(serPiece(p)); }
+    arr.push(row);
+  }
+  return arr;
+}
+function serializeHistory(hist) {
+  return hist.map(function (h) {
+    return { from: h.from, to: h.to, side: h.side, piece: serPiece(h.piece) };
+  });
+}
+function opposite(c) { return c === 'red' ? 'black' : 'red'; }
+
 function broadcast(room, obj, exceptSock) {
   room.sockets.forEach(function (s) {
     if (s !== exceptSock) sendWs(s, obj);
@@ -172,9 +190,16 @@ function onDisconnect(sock) {
   var room = rooms[code];
   // 从房间移除
   room.sockets = room.sockets.filter(function (s) { return s !== sock; });
+  // 清除悬而未决的求和/悔棋请求
+  room.pendingDraw = null;
+  room.pendingUndo = null;
   if (room.sockets.length === 0) {
-    delete rooms[code];
-    delete usedCodes[code];
+    // 仅当房间从未开局（创建后无人加入）才彻底删除并释放房间码；
+    // 已开局的对局保留房间与棋盘，允许任一方凭房间码重连回归。
+    if (!room.started) {
+      delete rooms[code];
+      delete usedCodes[code];
+    }
   } else {
     // 通知仍在房间的对手
     broadcast(room, { type: 'opponent_left' });
@@ -183,16 +208,21 @@ function onDisconnect(sock) {
 
 function handleMessage(sock, msg) {
   if (msg.type === 'create') {
-    var code = genCode();
-    var room = {
-      code: code,
-      sockets: [sock],
-      board: new XQ.Board(),
-      turn: 'red',
-      started: false,
-      finished: false,
-      ply: 0
-    };
+      var code = genCode();
+      var room = {
+        code: code,
+        sockets: [sock],
+        board: new XQ.Board(),
+        turn: 'red',
+        started: false,
+        finished: false,
+        ply: 0,
+        history: [],            // 每步: {from,to,side,piece,captured}
+        capturedRed: [],       // 红方俘获（黑子）
+        capturedBlack: [],     // 黑方俘获（红子）
+        pendingDraw: null,     // 待确认的和棋请求方
+        pendingUndo: null      // 待确认的悔棋请求方
+      };
     rooms[code] = room;
     usedCodes[code] = true;
     sock.roomCode = code;
@@ -206,16 +236,43 @@ function handleMessage(sock, msg) {
     var r = rooms[c];
     if (!r) { sendWs(sock, { type: 'error', msg: '房间不存在或已失效' }); return; }
     if (r.sockets.length >= 2) { sendWs(sock, { type: 'error', msg: '房间已满' }); return; }
+    // 分配颜色：已有 1 人 → 占空缺颜色（支持一方断线后凭房间码回归）；0 人 → 占红方
+    var assignColor = (r.sockets.length === 1)
+      ? (r.sockets[0].color === 'red' ? 'black' : 'red')
+      : 'red';
     r.sockets.push(sock);
     sock.roomCode = c;
-    sock.color = 'black';
+    sock.color = assignColor;
     r.started = true;
-    // 通知加入者
-    sendWs(sock, { type: 'joined', room: c, color: 'black' });
-    // 双方开局（各自拿到自己的颜色）
-    r.sockets.forEach(function (s) {
-      sendWs(s, { type: 'start', color: s.color });
-    });
+
+    if (r.sockets.length === 2) {
+      // 双方到齐 → 先发 start(着色+可走) 再发 state(权威棋盘)，兼容首局与中途重连
+      r.sockets.forEach(function (s) { sendWs(s, { type: 'start', color: s.color }); });
+      // 通知加入者其加入成功（房间码 + 颜色），与原单局流程一致
+      sendWs(sock, { type: 'joined', room: c, color: assignColor });
+      if (r.finished) {
+        // 再来一局：重置棋盘（state 不再下发，start 已含新局）
+        r.board = new XQ.Board();
+        r.turn = 'red'; r.ply = 0; r.history = []; r.capturedRed = []; r.capturedBlack = []; r.finished = false;
+        r.pendingDraw = null; r.pendingUndo = null;
+      } else {
+        var st = {
+          type: 'state', board: serializeBoard(r.board), turn: r.turn, ply: r.ply,
+          history: serializeHistory(r.history),
+          capturedRed: r.capturedRed.map(serPiece), capturedBlack: r.capturedBlack.map(serPiece),
+          finished: false, winner: null, resumed: r.ply > 0, ready: true
+        };
+        r.sockets.forEach(function (s) { sendWs(s, st); });
+      }
+    } else {
+      // 第一个凭码回归的人（另一人尚未回来）：发 start(着色) + state(当前棋盘, 未就位)
+      sendWs(sock, { type: 'start', color: assignColor });
+      sendWs(sock, { type: 'state', board: serializeBoard(r.board), turn: r.turn, ply: r.ply,
+        history: serializeHistory(r.history),
+        capturedRed: r.capturedRed.map(serPiece), capturedBlack: r.capturedBlack.map(serPiece),
+        finished: r.finished, winner: r.winner || null, resumed: true, ready: false });
+      sendWs(sock, { type: 'joined', room: c, color: assignColor, waiting: true });
+    }
     return;
   }
 
@@ -238,10 +295,22 @@ function handleMessage(sock, msg) {
     }
     if (!ok) { sendWs(sock, { type: 'error', msg: '非法走法' }); return; }
     // 应用并更新服务端棋盘
+    var captured = room.board.grid[to.r][to.c]; // move 前取出，可能是被吃子
+    var movedPiece = { side: piece.side, type: piece.type };
     room.board.move({ from: from, to: to });
+    room.history.push({
+      from: from, to: to, side: sock.color,
+      piece: movedPiece,
+      captured: captured ? { side: captured.side, type: captured.type } : null
+    });
+    if (captured) {
+      if (captured.side === 'black') room.capturedRed.push({ side: 'black', type: captured.type });
+      else room.capturedBlack.push({ side: 'red', type: captured.type });
+    }
     room.ply += 1;
     room.turn = XQ.opponent(room.turn);
-    var captured = !!(room.board.grid[to.r][to.c]); // 已在 move 前取出，这里仅作提示字段
+    room.pendingDraw = null; // 任一步走子后，悬而未决的求和/悔棋请求作废
+    room.pendingUndo = null;
     // 转发给对手（不走子方自己，避免本地重复落子）
     broadcast(room, { type: 'move', from: from, to: to, color: sock.color, ply: room.ply }, sock);
     // 终局检测（权威）
@@ -259,6 +328,84 @@ function handleMessage(sock, msg) {
     room2.finished = true;
     var winner = XQ.opponent(sock.color);
     broadcast(room2, { type: 'resigned', winner: winner });
+    return;
+  }
+
+  /* ---------- 求和（双方确认） ---------- */
+  if (msg.type === 'draw_offer') {
+    var rd = sock.roomCode && rooms[sock.roomCode];
+    if (!rd || !rd.started || rd.finished) return;
+    rd.pendingDraw = sock.color;
+    broadcast(rd, { type: 'draw_offer', from: sock.color }, sock);
+    return;
+  }
+  if (msg.type === 'draw_accept') {
+    var rda = sock.roomCode && rooms[sock.roomCode];
+    if (!rda || !rda.started || rda.finished || !rda.pendingDraw) return;
+    rda.finished = true; rda.pendingDraw = null; rda.pendingUndo = null;
+    broadcast(rda, { type: 'game_over', winner: 'draw' });
+    return;
+  }
+  if (msg.type === 'draw_decline') {
+    var rdd = sock.roomCode && rooms[sock.roomCode];
+    if (!rdd) return;
+    rdd.pendingDraw = null;
+    broadcast(rdd, { type: 'draw_decline' }, sock);
+    return;
+  }
+
+  /* ---------- 悔棋（双方确认，服务端权威回滚） ---------- */
+  if (msg.type === 'undo_request') {
+    var ru = sock.roomCode && rooms[sock.roomCode];
+    if (!ru || !ru.started || ru.finished) return;
+    if (ru.history.length === 0) { sendWs(sock, { type: 'error', msg: '暂无可悔棋步' }); return; }
+    ru.pendingUndo = sock.color;
+    broadcast(ru, { type: 'undo_request', from: sock.color }, sock);
+    return;
+  }
+  if (msg.type === 'undo_accept') {
+    var rua = sock.roomCode && rooms[sock.roomCode];
+    if (!rua || !rua.started || rua.finished || !rua.pendingUndo) return;
+    if (rua.history.length === 0) { rua.pendingUndo = null; return; }
+    var last = rua.history.pop();
+    // 回滚：把走动的子归位，被吃子（若有）复位
+    rua.board.set(last.to.r, last.to.c, last.captured || null);
+    rua.board.set(last.from.r, last.from.c, last.piece);
+    rua.turn = last.side;
+    rua.ply = Math.max(0, rua.ply - 1);
+    if (last.captured) {
+      if (last.captured.side === 'black') rua.capturedRed.pop();
+      else rua.capturedBlack.pop();
+    }
+    rua.pendingUndo = null; rua.pendingDraw = null;
+    rua.sockets.forEach(function (s) {
+      sendWs(s, {
+        type: 'state', board: serializeBoard(rua.board), turn: rua.turn, ply: rua.ply,
+        history: serializeHistory(rua.history),
+        capturedRed: rua.capturedRed.map(serPiece), capturedBlack: rua.capturedBlack.map(serPiece),
+        finished: false, winner: null, appliedUndo: true, ready: true
+      });
+    });
+    return;
+  }
+  if (msg.type === 'undo_decline') {
+    var rud = sock.roomCode && rooms[sock.roomCode];
+    if (!rud) return;
+    rud.pendingUndo = null;
+    broadcast(rud, { type: 'undo_decline' }, sock);
+    return;
+  }
+
+  /* ---------- 再来一局（房间复用，对局结束后无需重建房间） ---------- */
+  if (msg.type === 'rematch') {
+    var rm = sock.roomCode && rooms[sock.roomCode];
+    if (!rm || !rm.started) return;
+    if (rm.sockets.length < 2) { sendWs(sock, { type: 'error', msg: '对手已离开，无法再来一局' }); return; }
+    if (!rm.finished) return; // 仅对局结束后允许
+    rm.board = new XQ.Board();
+    rm.turn = 'red'; rm.ply = 0; rm.history = []; rm.capturedRed = []; rm.capturedBlack = [];
+    rm.finished = false; rm.pendingDraw = null; rm.pendingUndo = null;
+    rm.sockets.forEach(function (s) { sendWs(s, { type: 'start', color: s.color }); });
     return;
   }
 }

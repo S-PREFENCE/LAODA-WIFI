@@ -61,6 +61,13 @@
       el.btnCreate = $('btn-create');
       el.btnJoin = $('btn-join');
       el.btnResign = $('btn-resign');
+      el.btnDraw = $('btn-draw');
+      el.btnUndoReq = $('btn-undo-req');
+      el.btnRematch = $('btn-rematch');
+      el.onlineRequest = $('online-request');
+      el.onlineRequestText = $('online-request-text');
+      el.btnReqAccept = $('btn-req-accept');
+      el.btnReqDecline = $('btn-req-decline');
       el.onlineStatus = $('online-status');
 
       this.buildSVG();
@@ -90,6 +97,11 @@
         if (handlers.onNetJoin) handlers.onNetJoin(el.onlineJoinInput ? el.onlineJoinInput.value : '');
       });
       if (el.btnResign) el.btnResign.addEventListener('click', function () { if (handlers.onNetResign) handlers.onNetResign(); });
+      if (el.btnDraw) el.btnDraw.addEventListener('click', function () { if (handlers.onNetDraw) handlers.onNetDraw(); });
+      if (el.btnUndoReq) el.btnUndoReq.addEventListener('click', function () { if (handlers.onNetUndoReq) handlers.onNetUndoReq(); });
+      if (el.btnRematch) el.btnRematch.addEventListener('click', function () { if (handlers.onNetRematch) handlers.onNetRematch(); });
+      if (el.btnReqAccept) el.btnReqAccept.addEventListener('click', function () { if (handlers.onNetReqAccept) handlers.onNetReqAccept(); });
+      if (el.btnReqDecline) el.btnReqDecline.addEventListener('click', function () { if (handlers.onNetReqDecline) handlers.onNetReqDecline(); });
     },
 
     buildSVG: function () {
@@ -149,6 +161,7 @@
       this.renderHistory(st);
       this.renderCaptured(st);
       this.renderLevels(st);
+      this.renderOnline(st);
 
       // 横幅
       if (st.banner) {
@@ -298,6 +311,40 @@
     },
     showRoomCode: function (code) {
       if (el.onlineCode) el.onlineCode.textContent = code || '----';
+    },
+
+    // 联机交互区：求和 / 悔棋 / 再来一局 / 对方请求确认
+    renderOnline: function (st) {
+      if (!st.online) return;
+      var o = st.online;
+      var isOnline = (st.mode === 'online');
+      // 再来一局：对局结束后显示
+      if (el.btnRematch) {
+        var showRematch = isOnline && st.gameOver;
+        el.btnRematch.classList.toggle('hidden', !showRematch);
+      }
+      // 求和 / 悔棋按钮：仅对局进行中且已就位时可点，发出请求后禁用避免重复
+      if (el.btnDraw) {
+        var dDisable = !isOnline || !o.ready || st.gameOver || !!o.pendingOut;
+        el.btnDraw.disabled = dDisable;
+        el.btnDraw.classList.toggle('dim', dDisable);
+      }
+      if (el.btnUndoReq) {
+        var uDisable = !isOnline || !o.ready || st.gameOver || o.pendingOut || (st.history && st.history.length === 0);
+        el.btnUndoReq.disabled = uDisable;
+        el.btnUndoReq.classList.toggle('dim', uDisable);
+      }
+      // 收到对方请求 → 显示确认条
+      if (el.onlineRequest) {
+        if (o.pendingIn) {
+          el.onlineRequest.classList.remove('hidden');
+          if (el.onlineRequestText) {
+            el.onlineRequestText.textContent = (o.pendingIn === 'draw') ? '对方请求和棋' : '对方请求悔棋（撤回上一步）';
+          }
+        } else {
+          el.onlineRequest.classList.add('hidden');
+        }
+      }
     },
 
     /* ---------- 主题 ---------- */
