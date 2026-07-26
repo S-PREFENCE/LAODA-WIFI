@@ -8,6 +8,21 @@
   function pos(r, c) { return { x: PAD + c * CELL, y: PAD + r * CELL }; }
   XQ.uiPos = pos;
 
+  // 将鼠标/触摸坐标映射到最近的棋位（稳健吸附：点哪格算哪格，不依赖命中微小落点）
+  function cellFromEvent(e) {
+    var rect = el.board.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    var W = 8 * CELL + 2 * PAD, H = 9 * CELL + 2 * PAD;
+    var scaleX = rect.width / W, scaleY = rect.height / H;
+    var x = (e.clientX - rect.left) / scaleX;
+    var y = (e.clientY - rect.top) / scaleY;
+    var c = Math.round((x - PAD) / CELL);
+    var r = Math.round((y - PAD) / CELL);
+    if (r < 0 || r > 9 || c < 0 || c > 8) return null;
+    return { r: r, c: c };
+  }
+  XQ.cellFromEvent = cellFromEvent;
+
   var el = {}; // 缓存的 DOM 引用
   var handlers = {};
 
@@ -19,7 +34,9 @@
       el.board = $('board');
       el.svg = $('board-svg');
       el.pieces = $('pieces');
+      el.dots = $('dots');
       el.overlays = $('overlays');
+      el.pieceNodes = {};
       el.banner = $('banner');
       el.turnText = $('turn-text');
       el.turnDot = el.board.parentNode.querySelector('.turn-dot'); // 备用
@@ -48,15 +65,10 @@
 
       this.buildSVG();
 
-      // 棋子/落点点击委托
-      el.pieces.addEventListener('click', function (e) {
-        var t = e.target;
-        if (t.classList.contains('piece') || t.classList.contains('dot')) {
-          var r = parseInt(t.dataset.r, 10), c = parseInt(t.dataset.c, 10);
-          if (handlers.onSquareClick) handlers.onSquareClick(r, c);
-        } else {
-          if (handlers.onSquareClick) handlers.onSquareClick(null, null);
-        }
+      // 点击委托：基于坐标映射到最近棋位（稳健吸附，点哪格算哪格）
+      el.board.addEventListener('click', function (e) {
+        var cell = cellFromEvent(e);
+        if (handlers.onSquareClick) handlers.onSquareClick(cell ? cell.r : null, cell ? cell.c : null);
       });
 
       // 分段按钮
@@ -122,12 +134,53 @@
     },
 
     render: function (st) {
-      // 棋子
-      var html = '';
+      this.renderPieces(st);
+      this.renderDots(st);
+
+      // 行棋方
+      el.turnText.textContent = (st.turn === 'red' ? '红方' : '黑方') + '行棋';
+      var dot = el.turnIndicator.querySelector('.turn-dot');
+      if (dot) dot.className = 'turn-dot ' + st.turn;
+
+      // 消息
+      el.message.textContent = st.message || '';
+      el.message.className = 'message' + (st.messageType ? ' ' + st.messageType : '');
+
+      this.renderHistory(st);
+      this.renderCaptured(st);
+      this.renderLevels(st);
+
+      // 横幅
+      if (st.banner) {
+        el.banner.classList.remove('hidden');
+        el.banner.innerHTML = '<div class="big">' + st.banner.title + '</div>' + (st.banner.sub ? '<div class="sub">' + st.banner.sub + '</div>' : '');
+      } else {
+        el.banner.classList.add('hidden');
+      }
+    },
+
+    // 棋子：增量协调（不每次全量重建 DOM，消除卡顿）
+    renderPieces: function (st) {
+      if (this._boardRef !== st.board) {
+        this._boardRef = st.board;
+        el.pieces.innerHTML = '';
+        el.pieceNodes = {};
+      }
+      var grid = st.board.grid;
+      var seen = {};
       for (var r = 0; r < 10; r++) {
         for (var c = 0; c < 9; c++) {
-          var p = st.board.grid[r][c];
+          var p = grid[r][c];
           if (!p) continue;
+          var key = r + ',' + c;
+          seen[key] = true;
+          var node = el.pieceNodes[key];
+          if (!node) {
+            node = document.createElement('div');
+            node.dataset.r = r; node.dataset.c = c;
+            el.pieces.appendChild(node);
+            el.pieceNodes[key] = node;
+          }
           var xy = pos(r, c);
           var cls = 'piece ' + p.side;
           if (st.selected && st.selected.r === r && st.selected.c === c) cls += ' selected';
@@ -136,51 +189,63 @@
             if (st.lastMove.to.r === r && st.lastMove.to.c === c) cls += ' lastmove landed';
           }
           if (st.checkPos && st.checkPos.r === r && st.checkPos.c === c) cls += ' in-check';
-          var ch = XQ.CHAR[p.side][p.type];
-          html += '<div class="' + cls + '" data-r="' + r + '" data-c="' + c +
-            '" style="left:' + (xy.x - PIECE / 2) + 'px;top:' + (xy.y - PIECE / 2) + 'px">' + ch + '</div>';
+          node.className = cls;
+          node.textContent = XQ.CHAR[p.side][p.type];
+          node.style.left = (xy.x - PIECE / 2) + 'px';
+          node.style.top = (xy.y - PIECE / 2) + 'px';
         }
       }
-      // 合法落点
-      if (st.legalTargets) {
-        st.legalTargets.forEach(function (key) {
-          var parts = key.split(',');
-          var rr = +parts[0], cc = +parts[1];
-          var xy = pos(rr, cc);
-          var occupied = st.board.grid[rr][cc];
-          var dcls = occupied ? 'dot capture' : 'dot';
-          html += '<div class="' + dcls + '" data-r="' + rr + '" data-c="' + cc +
-            '" style="left:' + xy.x + 'px;top:' + xy.y + 'px"></div>';
-        });
+      for (var k in el.pieceNodes) {
+        if (!seen[k]) {
+          var n = el.pieceNodes[k];
+          if (n.parentNode) n.parentNode.removeChild(n);
+          delete el.pieceNodes[k];
+        }
       }
-      el.pieces.innerHTML = html;
+    },
 
-      // 行棋方
-      el.turnText.textContent = (st.turn === 'red' ? '红方' : '黑方') + '行棋';
-      var dot = el.turnIndicator.querySelector('.turn-dot');
-      dot.className = 'turn-dot ' + st.turn;
-
-      // 消息
-      el.message.textContent = st.message || '';
-      el.message.className = 'message' + (st.messageType ? ' ' + st.messageType : '');
-
-      // 着法记录
-      var h = '';
-      st.history.forEach(function (m) {
-        h += '<li class="' + m.side + '">' + m.text + '</li>';
+    // 合法落点：独立图层，随选择高频刷新（元素极少，开销可忽略）
+    renderDots: function (st) {
+      if (!el.dots) return;
+      if (!st.legalTargets || !st.legalTargets.size) { el.dots.innerHTML = ''; return; }
+      var html = '';
+      st.legalTargets.forEach(function (key) {
+        var parts = key.split(',');
+        var rr = +parts[0], cc = +parts[1];
+        var xy = pos(rr, cc);
+        var occupied = st.board.grid[rr][cc];
+        var dcls = occupied ? 'dot capture' : 'dot';
+        html += '<div class="' + dcls + '" style="left:' + xy.x + 'px;top:' + xy.y + 'px"></div>';
       });
-      el.history.innerHTML = h;
+      el.dots.innerHTML = html;
+    },
 
-      // 俘获
+    // 着法记录：仅变化时才重建
+    renderHistory: function (st) {
+      var sig = st.history.length + ':' + (st.history.length ? st.history[st.history.length - 1].text : '');
+      if (this._histSig === sig) return;
+      this._histSig = sig;
+      var h = '';
+      st.history.forEach(function (m) { h += '<li class="' + m.side + '">' + m.text + '</li>'; });
+      el.history.innerHTML = h;
+    },
+
+    // 俘获：仅数量变化时才重建
+    renderCaptured: function (st) {
+      var sig = st.capturedRed.length + ',' + st.capturedBlack.length;
+      if (this._capSig === sig) return;
+      this._capSig = sig;
       el.capRed.innerHTML = st.capturedRed.map(function (p) { return '<span class="' + p.side + '">' + XQ.CHAR[p.side][p.type] + '</span>'; }).join('');
       el.capBlack.innerHTML = st.capturedBlack.map(function (p) { return '<span class="' + p.side + '">' + XQ.CHAR[p.side][p.type] + '</span>'; }).join('');
+    },
 
-      // 关卡
-      if (st.levels) {
+    // 关卡：仅首次绑定监听，之后只切换高亮
+    renderLevels: function (st) {
+      if (!st.levels) return;
+      if (!this._lvlBound) {
         var lv = '';
         st.levels.forEach(function (L) {
-          var c = 'lvl' + (L.active ? ' active' : '');
-          lv += '<button class="' + c + '" data-level="' + L.id + '">' + L.id + '</button>';
+          lv += '<button class="lvl' + (L.active ? ' active' : '') + '" data-level="' + L.id + '">' + L.id + '</button>';
         });
         el.levels.innerHTML = lv;
         Array.prototype.forEach.call(el.levels.querySelectorAll('.lvl'), function (btn) {
@@ -188,14 +253,11 @@
             if (handlers.onLevelClick) handlers.onLevelClick(parseInt(btn.dataset.level, 10));
           });
         });
-      }
-
-      // 横幅
-      if (st.banner) {
-        el.banner.classList.remove('hidden');
-        el.banner.innerHTML = '<div class="big">' + st.banner.title + '</div>' + (st.banner.sub ? '<div class="sub">' + st.banner.sub + '</div>' : '');
+        this._lvlBound = true;
       } else {
-        el.banner.classList.add('hidden');
+        Array.prototype.forEach.call(el.levels.querySelectorAll('.lvl'), function (btn, i) {
+          btn.classList.toggle('active', st.levels[i] && st.levels[i].active);
+        });
       }
     },
 

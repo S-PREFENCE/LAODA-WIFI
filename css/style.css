@@ -71,6 +71,7 @@ html, body {
 
 .board-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .pieces { position: absolute; inset: 0; }
+.dots { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 .overlays { position: absolute; inset: 0; pointer-events: none; }
 
 /* 棋子 */
