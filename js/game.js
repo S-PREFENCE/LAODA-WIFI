@@ -24,6 +24,9 @@
     messageType: '',
     aiThinking: false,
     currentLevelId: null,
+    endReason: null,            // 本局结束原因：'no-moves'(被将死/困毙) 等
+    checkmateAudioPlayed: false, // 绝杀音频每局仅播放一次
+    chatLog: [],                // 联机聊天记录
 
     /* ---------- 联机对战状态 ---------- */
     onlineColor: null,    // 本端执 'red' / 'black'
@@ -51,7 +54,8 @@
         onNetUndoReq: function () { self.onNetUndoReq(); },
         onNetRematch: function () { self.onNetRematch(); },
         onNetReqAccept: function () { self.onNetReqAccept(); },
-        onNetReqDecline: function () { self.onNetReqDecline(); }
+        onNetReqDecline: function () { self.onNetReqDecline(); },
+        onSendChat: function (t) { self.sendChat(t); }
       });
       if (XQ.Net) XQ.Net.init({
         onStatus: function (s) { self.onNetStatus(s); },
@@ -67,6 +71,7 @@
         onDrawDecline: function (m) { self.onNetDrawDecline(m); },
         onUndoRequest: function (m) { self.onNetUndoRequest(m); },
         onUndoDecline: function (m) { self.onNetUndoDecline(m); },
+        onChat: function (m) { self.onChat(m); },
         onError: function (m) { self.onNetError(m); }
       });
       XQ.UI.setSoundLabel(!XQ.Audio.isMuted());
@@ -132,6 +137,8 @@
       this.winner = null;
       this.banner = null;
       this.aiThinking = false;
+      this.endReason = null;
+      this.checkmateAudioPlayed = false;
     },
 
     restart: function () {
@@ -156,6 +163,7 @@
       this.onlineColor = null;
       this.onlineReady = false;
       this.onlineRoom = null;
+      this.chatLog = [];
       this.message = '点击下方「创建房间」，或输入房间码后「加入房间」以开始';
       this.messageType = '';
       XQ.Net.connect();
@@ -306,6 +314,7 @@
     onNetCreated: function (m) {
       this.onlineColor = 'red';
       this.onlineRoom = m.room;
+      this.chatLog = [];
       XQ.UI.showRoomCode(m.room);
       this.message = '房间已创建：' + m.room + '，等待对手加入…';
       this.messageType = '';
@@ -315,6 +324,7 @@
     onNetJoined: function (m) {
       this.onlineColor = 'black';
       this.onlineRoom = m.room;
+      this.chatLog = [];
       XQ.UI.showRoomCode(m.room);
       this.message = '已加入房间 ' + m.room + '，等待开局…';
       this.messageType = '';
@@ -354,6 +364,7 @@
       if (this.gameOver) return;
       this.gameOver = true;
       this.winner = m.winner;
+      this.endReason = null;
       this.handleEnd();
       this.render();
     },
@@ -362,6 +373,7 @@
       if (this.gameOver) return;
       this.gameOver = true;
       this.winner = m.winner;
+      this.endReason = null;
       this.handleEnd();
       this.render();
     },
@@ -369,6 +381,24 @@
     onNetError: function (m) {
       this.message = (m && m.msg) ? m.msg : '网络错误';
       this.messageType = 'alert';
+      this.render();
+    },
+
+    /* ---------- 联机聊天 ---------- */
+    onChat: function (m) {
+      if (this.mode !== 'online') return;
+      this.chatLog.push({ side: m.from, text: String(m.text || '') });
+      this.render();
+    },
+
+    sendChat: function (text) {
+      if (this.mode !== 'online') return;
+      text = String(text || '').trim();
+      if (!text) return;
+      text = text.slice(0, 200);
+      // 本地先显示自己的消息（服务端只把消息中继给对手，不会回送自己）
+      this.chatLog.push({ side: this.onlineColor || 'red', text: text, self: true });
+      if (XQ.Net) XQ.Net.sendChat(text);
       this.render();
     },
 
@@ -458,6 +488,7 @@
       if (res.over) {
         this.gameOver = true;
         this.winner = res.winner;
+        this.endReason = res.reason;
         this.handleEnd();
       } else if (inChk) {
         this.message = '将军！';
@@ -483,7 +514,13 @@
         else { title = (w === 'red' ? '红方胜 !' : '黑方胜 !'); sub = '点击重新开始'; win = true; }
       }
       this.banner = { title: title, sub: sub };
-      XQ.Audio.play(win ? 'win' : 'lose');
+      // 绝杀结算：仅当「被将死/困毙」(no-moves) 且本局尚未播放过时播放曼巴熬音频，否则用合成音
+      if (this.endReason === 'no-moves' && !this.checkmateAudioPlayed) {
+        XQ.Audio.play('checkmate');
+        this.checkmateAudioPlayed = true;
+      } else {
+        XQ.Audio.play(win ? 'win' : 'lose');
+      }
     },
 
     diffName: function () {
@@ -603,6 +640,7 @@
         capturedBlack: this.capturedBlack,
         levels: this.levelList(),
         banner: this.banner,
+        chatLog: this.chatLog,
         online: {
           room: this.onlineRoom,
           ready: this.onlineReady,

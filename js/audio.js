@@ -13,6 +13,12 @@
     checkAudio.preload = 'auto';
   } catch (e) { checkAudio = null; }
 
+  var checkmateAudio = null;
+  try {
+    checkmateAudio = new Audio('assets/checkmate.mp3');
+    checkmateAudio.preload = 'auto';
+  } catch (e) { checkmateAudio = null; }
+
   function ensure() {
     if (ctx) {
       if (ctx.state === 'suspended') ctx.resume();
@@ -87,6 +93,19 @@
       tone({ freq: 880, dur: 0.12, type: 'sawtooth', gain: 0.25 });
       tone({ freq: 1175, dur: 0.14, type: 'sawtooth', gain: 0.25, delay: 0.12 });
     },
+    checkmate: function () {
+      // 绝杀结算音频：优先播放曼巴熬.mp3；文件缺失/播放失败时回退到胜利合成音
+      if (muted) return;
+      if (checkmateAudio) {
+        try {
+          checkmateAudio.currentTime = 0;
+          var pr = checkmateAudio.play();
+          if (pr && pr.catch) pr.catch(function () {});
+          return;
+        } catch (e) { /* 回退到合成音 */ }
+      }
+      SOUNDS.win();
+    },
     win: function () {
       [523, 659, 784, 1047].forEach(function (f, i) {
         tone({ freq: f, dur: 0.22, type: 'triangle', gain: 0.3, delay: i * 0.12 });
@@ -106,6 +125,7 @@
     unlock: function () {
       ensure();
       if (checkAudio) { try { checkAudio.load(); } catch (e) {} }
+      if (checkmateAudio) { try { checkmateAudio.load(); } catch (e) {} }
     },
     play: function (name) { if (SOUNDS[name]) SOUNDS[name](); },
     setMuted: function (m) { muted = !!m; },

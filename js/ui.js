@@ -69,6 +69,10 @@
       el.btnReqAccept = $('btn-req-accept');
       el.btnReqDecline = $('btn-req-decline');
       el.onlineStatus = $('online-status');
+      el.chatPanel = $('chat-panel');
+      el.chatLog = $('chat-log');
+      el.chatInput = $('chat-input');
+      el.chatSend = $('chat-send');
 
       this.buildSVG();
 
@@ -102,6 +106,12 @@
       if (el.btnRematch) el.btnRematch.addEventListener('click', function () { if (handlers.onNetRematch) handlers.onNetRematch(); });
       if (el.btnReqAccept) el.btnReqAccept.addEventListener('click', function () { if (handlers.onNetReqAccept) handlers.onNetReqAccept(); });
       if (el.btnReqDecline) el.btnReqDecline.addEventListener('click', function () { if (handlers.onNetReqDecline) handlers.onNetReqDecline(); });
+
+      // 联机聊天：按钮 + 回车发送
+      if (el.chatSend) el.chatSend.addEventListener('click', sendChatInput);
+      if (el.chatInput) el.chatInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); sendChatInput(); }
+      });
     },
 
     buildSVG: function () {
@@ -162,6 +172,7 @@
       this.renderCaptured(st);
       this.renderLevels(st);
       this.renderOnline(st);
+      this.renderChat(st);
 
       // 横幅
       if (st.banner) {
@@ -347,6 +358,26 @@
       }
     },
 
+    // 联机聊天记录：仅消息数/末条变化时重建，自动滚到底
+    renderChat: function (st) {
+      if (!el.chatLog) return;
+      var log = (st.chatLog || []);
+      var sig = log.length + ':' + (log.length ? log[log.length - 1].text : '');
+      if (this._chatSig !== sig) {
+        this._chatSig = sig;
+        var h = '';
+        log.forEach(function (m) {
+          var who = m.self ? 'me' : (m.side === 'red' ? 'red' : 'black');
+          var label = m.self ? '我' : (m.side === 'red' ? '红方' : '黑方');
+          h += '<div class="chat-msg ' + who + '"><span class="who">' + label + '</span>' + escapeHtml(m.text) + '</div>';
+        });
+        el.chatLog.innerHTML = h;
+      }
+      el.chatLog.scrollTop = el.chatLog.scrollHeight;
+      if (el.chatPanel) el.chatPanel.classList.toggle('hidden', st.mode !== 'online');
+      if (el.chatInput) el.chatInput.disabled = (st.mode !== 'online');
+    },
+
     /* ---------- 主题 ---------- */
     setTheme: function (name) {
       document.body.className = 'theme-' + name;
@@ -377,6 +408,19 @@
       setTimeout(remove, 500);
     }
   };
+
+  function sendChatInput() {
+    if (!el.chatInput) return;
+    var v = el.chatInput.value;
+    if (handlers.onSendChat) handlers.onSendChat(v);
+    el.chatInput.value = '';
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
 
   function bindSeg(container, attr, cb) {
     if (!container) return;

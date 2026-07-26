@@ -64,6 +64,7 @@
         case 'draw_decline':  if (cb.onDrawDecline) cb.onDrawDecline(msg); break;
         case 'undo_request':  if (cb.onUndoRequest) cb.onUndoRequest(msg); break;
         case 'undo_decline':  if (cb.onUndoDecline) cb.onUndoDecline(msg); break;
+        case 'chat':          if (cb.onChat) cb.onChat(msg); break;
         case 'error':         if (cb.onError) cb.onError(msg); break;
         default: break;
       }
@@ -80,6 +81,7 @@
     undoAccept: function () { queue.push({ type: 'undo_accept' }); flush(); },
     undoDecline: function () { queue.push({ type: 'undo_decline' }); flush(); },
     rematch: function () { queue.push({ type: 'rematch' }); flush(); },
+    sendChat: function (text) { queue.push({ type: 'chat', text: String(text || '').slice(0, 200) }); flush(); },
     disconnect: function () { if (ws) { try { ws.close(); } catch (e) {} } ws = null; }
   };
 

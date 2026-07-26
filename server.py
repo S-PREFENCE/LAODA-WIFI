@@ -308,6 +308,16 @@ def handle_message(room, conn, msg):
         broadcast(room, {'type': 'undo_decline'}, except_sock=conn)
         return
 
+    # ---------- 聊天（中继给对手） ----------
+    if mtype == 'chat':
+        if not room or conn not in room['colors']:
+            return
+        text = str(msg.get('text') or '').strip()[:200]
+        if not text:
+            return
+        broadcast(room, {'type': 'chat', 'from': room['colors'][conn], 'text': text}, except_sock=conn)
+        return
+
     # ---------- 再来一局（房间复用） ----------
     if mtype == 'rematch':
         if not room['started']:

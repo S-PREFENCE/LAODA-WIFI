@@ -8,6 +8,16 @@
 </head>
 <body>
   <div class="app">
+    <!-- 联机聊天（左侧） -->
+    <aside class="chat-panel" id="chat-panel">
+      <div class="panel-title">对局聊天</div>
+      <div class="chat-log" id="chat-log"></div>
+      <div class="chat-input-row">
+        <input id="chat-input" class="chat-input" type="text" maxlength="200" placeholder="和对手聊两句…" />
+        <button id="chat-send" class="act">发送</button>
+      </div>
+    </aside>
+
     <!-- 棋盘区 -->
     <section class="stage">
       <div class="board-frame">

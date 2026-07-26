@@ -331,6 +331,16 @@ function handleMessage(sock, msg) {
     return;
   }
 
+  /* ---------- 聊天（中继给对手） ---------- */
+  if (msg.type === 'chat') {
+    var rc = sock.roomCode && rooms[sock.roomCode];
+    if (!rc) return;
+    var text = String(msg.text || '').slice(0, 200).trim();
+    if (!text) return;
+    broadcast(rc, { type: 'chat', from: sock.color, text: text }, sock);
+    return;
+  }
+
   /* ---------- 求和（双方确认） ---------- */
   if (msg.type === 'draw_offer') {
     var rd = sock.roomCode && rooms[sock.roomCode];

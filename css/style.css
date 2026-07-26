@@ -383,7 +383,67 @@ body.theme-royal .board { background: radial-gradient(120% 120% at 50% 0%, #e6d7
 body.theme-royal .sidebar { background: rgba(34, 20, 46, 0.55); border-color: rgba(200, 170, 230, 0.28); }
 
 /* 响应式：窄屏时侧栏移到下方 */
+/* ---------- 联机聊天（左侧） ---------- */
+.chat-panel {
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--glass);
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+  max-height: calc(100vh - 60px);
+  align-self: center;
+}
+.chat-panel .panel-title { color: var(--gold); letter-spacing: 2px; font-size: 12px; }
+.chat-log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px;
+  min-height: 320px;
+  max-height: 520px;
+  background: rgba(0,0,0,0.18);
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.chat-log::-webkit-scrollbar { width: 6px; }
+.chat-log::-webkit-scrollbar-thumb { background: var(--gold-soft); border-radius: 6px; }
+.chat-msg {
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 7px 10px;
+  border-radius: 10px;
+  max-width: 90%;
+  word-break: break-word;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.chat-msg .who { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; }
+.chat-msg.me {
+  align-self: flex-end;
+  background: linear-gradient(145deg, rgba(240,212,154,0.22), rgba(217,178,90,0.12));
+  border-color: var(--gold-soft);
+}
+.chat-msg.red .who { color: #e89a8e; }
+.chat-msg.black .who { color: #cfcfcf; }
+.chat-input-row { display: flex; gap: 6px; }
+.chat-input {
+  flex: 1; min-width: 0; padding: 9px 10px; border-radius: 10px;
+  border: 1px solid var(--glass-line); background: rgba(0,0,0,0.2);
+  color: var(--text); font-size: 13px; font-family: inherit;
+}
+.chat-input:focus { outline: none; border-color: var(--gold); }
+.chat-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
 @media (max-width: 900px) {
   .app { flex-direction: column; align-items: center; }
   .sidebar { width: min(508px, 92vw); max-height: none; }
+  .chat-panel { width: min(508px, 92vw); max-height: 320px; }
 }
