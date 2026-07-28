@@ -139,6 +139,22 @@
       this.aiThinking = false;
       this.endReason = null;
       this.checkmateAudioPlayed = false;
+      this.positions = [{ pos: XQ.boardKey(this.board), turn: this.turn }];
+    },
+
+    // 重连后依据重建的 history 重算 positions（保证重复局面判定不失效）
+    rebuildPositions: function () {
+      var b = new XQ.Board();
+      this.positions = [{ pos: XQ.boardKey(b), turn: 'red' }];
+      for (var i = 0; i < this.history.length; i++) {
+        var h = this.history[i];
+        b.move(h.move);
+        var t = XQ.opponent(this.positions[this.positions.length - 1].turn);
+        this.positions.push({ pos: XQ.boardKey(b), turn: t });
+        h.pos = XQ.boardKey(b);
+        h.turn = t;
+        h.check = XQ.isInCheck(b, t);
+      }
     },
 
     restart: function () {
@@ -272,6 +288,7 @@
     onNetState: function (st) {
       if (this.mode !== 'online') return;
       this.applyOnlineState(st);
+      this.rebuildPositions();
       var label;
       if (st.appliedUndo) label = '悔棋成功，已撤回上一步';
       else if (st.resumed) label = '已恢复对局';
@@ -476,6 +493,8 @@
       XQ.Audio.play(captured ? 'capture' : 'move');
       XQ.UI.impactAt(move.to.r, move.to.c, captured ? 'capture' : 'move');
       this.turn = XQ.opponent(this.turn);
+      this.history[this.history.length - 1].check = XQ.isInCheck(this.board, this.turn);
+      this.positions.push({ pos: XQ.boardKey(this.board), turn: this.turn });
       if (this.mode === 'online' && opts.local && XQ.Net) XQ.Net.sendMove(move);
       this.clearSelection();
       this.updateCheckAndEnd();
@@ -490,6 +509,20 @@
         this.winner = res.winner;
         this.endReason = res.reason;
         this.handleEnd();
+        return;
+      }
+      var rep = XQ.analyzeRepetition(this.positions, this.history);
+      if (rep) {
+        this.gameOver = true;
+        if (rep.result === 'perpetual-check') {
+          this.winner = XQ.opponent(rep.loser);
+          this.endReason = 'perpetual-check';
+        } else {
+          this.winner = 'draw';
+          this.endReason = 'draw';
+        }
+        this.handleEnd();
+        return;
       } else if (inChk) {
         this.message = '将军！';
         this.messageType = 'alert';
@@ -502,6 +535,11 @@
 
     handleEnd: function () {
       var w = this.winner;
+      if (w === 'draw') {
+        this.banner = { title: '和 棋', sub: '重复局面，判和' };
+        XQ.Audio.play('win');
+        return;
+      }
       var title, sub, win = false;
       if (this.mode === 'endgame') {
         if (w === 'red') { title = '过 关 !'; sub = '第' + this.currentLevelId + '关 通关'; win = true; }
