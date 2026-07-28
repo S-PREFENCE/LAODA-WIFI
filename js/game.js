@@ -26,6 +26,8 @@
     currentLevelId: null,
     endReason: null,            // 本局结束原因：'no-moves'(被将死/困毙) 等
     checkmateAudioPlayed: false, // 绝杀音频每局仅播放一次
+    consecutiveChecks: { red: 0, black: 0 }, // 各方连续将军计数（用于禁手）
+    checkBanned: { red: false, black: false }, // 各方是否因连续将军被禁手
     chatLog: [],                // 联机聊天记录
 
     /* ---------- 联机对战状态 ---------- */
@@ -139,6 +141,8 @@
       this.aiThinking = false;
       this.endReason = null;
       this.checkmateAudioPlayed = false;
+      this.consecutiveChecks = { red: 0, black: 0 };
+      this.checkBanned = { red: false, black: false };
       this.positions = [{ pos: XQ.boardKey(this.board), turn: this.turn }];
     },
 
@@ -155,6 +159,7 @@
         h.turn = t;
         h.check = XQ.isInCheck(b, t);
       }
+      this.recomputeCheckBan();
     },
 
     restart: function () {
@@ -434,7 +439,9 @@
       if (this.selected) {
         var key = r + ',' + c;
         if (this.legalTargets && this.legalTargets.has(key)) {
-          this.doHumanMove({ from: this.selected, to: { r: r, c: c } });
+          var mv = { from: this.selected, to: { r: r, c: c } };
+          if (this.isForbiddenCheck(this.turn, mv)) { this.showForbidden(); return; }
+          this.doHumanMove(mv);
           return;
         }
       }
@@ -452,6 +459,40 @@
       this.selected = null;
       this.legalTargets = null;
       this.legalMovesSelected = null;
+    },
+
+    // 依据整段历史重算「连续将军计数 + 禁手标记」（撤销/重连后保持与对手一致）
+    recomputeCheckBan: function () {
+      this.consecutiveChecks = { red: 0, black: 0 };
+      for (var k = 0; k < this.history.length; k++) {
+        var s = this.history[k].side;
+        if (this.history[k].check) this.consecutiveChecks[s]++;
+        else this.consecutiveChecks[s] = 0;
+      }
+      // 禁手仅取决于「当前连续将军计数」是否达阈值：走非将军着法即解除
+      this.checkBanned = {
+        red: this.consecutiveChecks.red >= 3,
+        black: this.consecutiveChecks.black >= 3
+      };
+    },
+
+    // 当前方是否因连续将军被禁手，且本步正是将军（且存在非将军替代着法）
+    isForbiddenCheck: function (side, move) {
+      if (!this.checkBanned[side]) return false;
+      if (!XQ.wouldCheck(this.board, move, side)) return false;
+      var self = this;
+      var alts = XQ.legalMoves(this.board, side).filter(function (m) {
+        return !XQ.wouldCheck(self.board, m, side);
+      });
+      return alts.length > 0;
+    },
+
+    // 弹出「禁止连续将军」提示（轻量 toast + 状态行）
+    showForbidden: function () {
+      XQ.UI.toast('禁止连续将军');
+      this.message = '禁止连续将军！请改走非将军着法';
+      this.messageType = 'alert';
+      this.render();
     },
 
     computeTargets: function () {
@@ -495,6 +536,7 @@
       this.turn = XQ.opponent(this.turn);
       this.history[this.history.length - 1].check = XQ.isInCheck(this.board, this.turn);
       this.positions.push({ pos: XQ.boardKey(this.board), turn: this.turn });
+      this.recomputeCheckBan();
       if (this.mode === 'online' && opts.local && XQ.Net) XQ.Net.sendMove(move);
       this.clearSelection();
       this.updateCheckAndEnd();
@@ -580,7 +622,8 @@
       this.render();
       setTimeout(function () {
         var diff = self.mode === 'endgame' ? 'hard' : self.difficulty;
-        var res = XQ.aiBestMove(self.board, self.aiSide, diff);
+        var forbid = self.checkBanned[self.aiSide];
+        var res = XQ.aiBestMove(self.board, self.aiSide, diff, forbid);
         self.aiThinking = false;
         if (!res) return; // 理论上不会发生
         self.applyMove(res.move);
@@ -602,6 +645,7 @@
       if ((this.mode === 'pvai' || this.mode === 'endgame') && this.turn === this.aiSide && this.history.length > 0) {
         this.undoOnePly();
       }
+      this.recomputeCheckBan();
       this.gameOver = false; this.winner = null; this.banner = null;
       this.checkPos = null;
       this.message = (this.turn === 'red' ? '红方' : '黑方') + '行棋';

@@ -268,36 +268,36 @@
     return s;
   };
 
-  /* 重复局面分析（长将 / 和棋）
-   * positions: 数组，positions[k] 为「第 k 步之后的局面」，positions[0] 为初始局面；
-   *            每项 { pos: XQ.boardKey(board), turn: 该局面轮到谁走 }
-   * history:   数组，history[k] 为产生 positions[k+1] 的那一步；
-   *            每项 { side: 走子方, check: 该步是否将军 }
-   * 规则（简化版《象棋竞赛规则》棋例）：
-   *   - 同一局面（同子力布局 + 同走子方）出现第 REP_LIMIT 次 → 判为重复。
-   *   - 重复循环中「来回走子、每一步都将军」的一方 → 长将，该方判负。
-   *   - 否则（重复但非长将、也非长捉）→ 和棋。
+  // 模拟走子后，side 是否对对方形成将军（非破坏性：临时改动后还原）
+  XQ.wouldCheck = function (board, move, side) {
+    var fr = move.from.r, fc = move.from.c, tr = move.to.r, tc = move.to.c;
+    var fromP = board.get(fr, fc);
+    var toP = board.get(tr, tc);
+    if (!fromP) return false;
+    board.set(tr, tc, fromP);
+    board.set(fr, fc, null);
+    var chk = XQ.isInCheck(board, XQ.opponent(side));
+    board.set(fr, fc, fromP);
+    board.set(tr, tc, toP);
+    return chk;
+  };
+
+  /* 重复局面分析（和棋）
+   * positions / history 含义同上。
+   * 规则：同一局面（同子力布局 + 同走子方）出现第 REP_LIMIT 次 → 判和。
+   * 注：「长将」不再判负，改为走子时拦截（禁止连续将军，见 game.js 的
+   *      isForbiddenCheck / recomputeCheckBan），故此处仅处理重复判和。
    * REP_LIMIT 为可调阈值（出现次数）。返回 null 表示尚未达重复。 */
   var REP_LIMIT = 3;
   XQ.analyzeRepetition = function (positions, history) {
     var n = positions.length;
     for (var i2 = n - 1; i2 >= 0; i2--) {
       var p = positions[i2].pos, t = positions[i2].turn;
-      var occ = 0, j0 = -1;
+      var occ = 0;
       for (var j = 0; j < i2; j++) {
-        if (positions[j].pos === p && positions[j].turn === t) { occ++; if (j0 < 0) j0 = j; }
+        if (positions[j].pos === p && positions[j].turn === t) occ++;
       }
-      if (occ + 1 >= REP_LIMIT) { // 含 i2 本身共 REP_LIMIT 次
-        var loopSide = XQ.opponent(t);
-        var checkerOpp = true, checkerT = true;
-        for (var h = j0; h < i2; h++) {
-          var e = history[h];
-          if (e.side === loopSide && !e.check) checkerOpp = false;
-          if (e.side === t && !e.check) checkerT = false;
-        }
-        if (checkerOpp && !checkerT) return { result: 'perpetual-check', loser: loopSide };
-        if (checkerT && !checkerOpp) return { result: 'perpetual-check', loser: t };
-        if (checkerOpp && checkerT) return { result: 'perpetual-check', loser: loopSide };
+      if (occ + 1 >= REP_LIMIT) {
         return { result: 'draw' };
       }
     }

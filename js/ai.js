@@ -98,10 +98,15 @@
   }
 
   // 根节点搜索：返回最佳走法（带可选随机扰动用于低难度）
-  XQ.aiBestMove = function (board, aiSide, difficultyName) {
+  XQ.aiBestMove = function (board, aiSide, difficultyName, forbidCheck) {
     var cfg = XQ.DIFFICULTY[difficultyName] || XQ.DIFFICULTY.medium;
     var moves = XQ.legalMoves(board, aiSide);
     if (moves.length === 0) return null;
+    if (forbidCheck) {
+      // 禁手：本步不得将军；若存在「非将军」合法着法才过滤，否则放开以免无棋可走
+      var safe = moves.filter(function (m) { return !XQ.wouldCheck(board, m, aiSide); });
+      if (safe.length > 0) moves = safe;
+    }
     if (cfg.order) moves = orderMoves(moves, board);
 
     var opp = XQ.opponent(aiSide);

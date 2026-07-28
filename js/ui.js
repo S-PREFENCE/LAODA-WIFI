@@ -406,6 +406,20 @@
       var remove = function () { if (div.parentNode) div.parentNode.removeChild(div); };
       div.addEventListener('animationend', remove);
       setTimeout(remove, 500);
+    },
+
+    // 轻量弹窗提示（非阻塞，1.6s 自动消失，用于「禁止连续将军」等规则提示）
+    toast: function (msg) {
+      if (typeof document === 'undefined') return;
+      var d = document.createElement('div');
+      d.textContent = msg;
+      d.style.cssText = 'position:fixed;left:50%;top:16%;transform:translateX(-50%);z-index:9999;'
+        + 'background:rgba(196,32,32,0.94);color:#fff;padding:11px 20px;border-radius:12px;'
+        + 'font-size:16px;font-weight:700;letter-spacing:1px;box-shadow:0 8px 24px rgba(0,0,0,0.35);'
+        + 'pointer-events:none;opacity:1;transition:opacity .35s ease;';
+      document.body.appendChild(d);
+      setTimeout(function () { d.style.opacity = '0'; }, 1200);
+      setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 1600);
     }
   };
 
