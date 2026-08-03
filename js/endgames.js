@@ -92,7 +92,7 @@
       P(7,2,'P','black'),
       P(8,0,'R','black'), P(8,2,'R','red'), P(8,3,'K','red')
     ] },
-    { id: 23, name: '郑伯克段于鄢(一)', tip: '古谱残局，红方必胜', redMustWin: true, pieces: [
+    { id: 23, name: '郑伯克段于鄢(一)', tip: '古谱残局 红先和', redMustWin: false, pieces: [
       P(1,2,'E','black'), P(1,3,'A','black'), P(1,4,'K','black'), P(1,5,'A','black'),
       P(2,2,'P','red'),
       P(3,0,'C','black'), P(3,4,'E','black'),
