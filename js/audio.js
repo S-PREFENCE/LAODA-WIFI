@@ -7,15 +7,20 @@
   var ctx = null;
   var master = null;
   var muted = false;
-  // 统一音效文件：将军 / 绝杀 均使用 assets/曼巴熬.mp4（玩家指定统一用此一份）
-  var cueAudio = null;
+  // 音效文件分工（玩家指定）：
+  //  - 将军提示音：assets/男人man1_爱给网_aigei_com.mp3
+  //  - 结束/绝杀结算音：assets/曼巴熬.mp4
+  var checkAudio = null;
   try {
-    cueAudio = new Audio('assets/曼巴熬.mp4');
-    cueAudio.preload = 'auto';
-  } catch (e) { cueAudio = null; }
+    checkAudio = new Audio('assets/男人man1_爱给网_aigei_com.mp3');
+    checkAudio.preload = 'auto';
+  } catch (e) { checkAudio = null; }
 
-  var checkAudio = cueAudio;       // 将军提示音
-  var checkmateAudio = cueAudio;   // 绝杀结算音
+  var checkmateAudio = null;
+  try {
+    checkmateAudio = new Audio('assets/曼巴熬.mp4');
+    checkmateAudio.preload = 'auto';
+  } catch (e) { checkmateAudio = null; }
 
   function ensure() {
     if (ctx) {
@@ -77,7 +82,7 @@
       tone({ freq: 300, freqEnd: 110, dur: 0.11, type: 'square', gain: 0.16, delay: 0.05 });
     },
     check: function () {
-      // 将军提示音：优先播放统一音效文件 曼巴熬.mp4，其余音效保持合成
+      // 将军提示音：优先播放 assets/男人man1_爱给网_aigei_com.mp3，其余音效保持合成
       if (muted) return;
       if (checkAudio) {
         try {
@@ -92,7 +97,7 @@
       tone({ freq: 1175, dur: 0.14, type: 'sawtooth', gain: 0.25, delay: 0.12 });
     },
     checkmate: function () {
-      // 绝杀结算音频：优先播放统一音效文件 曼巴熬.mp4；文件缺失/播放失败时回退到胜利合成音
+      // 结束/绝杀结算音频：优先播放曼巴熬.mp4；文件缺失/播放失败时回退到胜利合成音
       if (muted) return;
       if (checkmateAudio) {
         try {
