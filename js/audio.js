@@ -1,4 +1,4 @@
-/* audio.js — 音效：落子/吃子/胜负/非法/按钮为程序化合成；将军使用音频文件
+/* audio.js — 音效：全部程序化合成（落子/吃子/胜负/非法/按钮/将军/绝杀）
  * 带全局静音开关。
  * 浏览器自动播放策略：首次用户交互后初始化并 resume。 */
 (function (root) {
@@ -7,20 +7,6 @@
   var ctx = null;
   var master = null;
   var muted = false;
-  // 音效文件分工（玩家指定）：
-  //  - 将军提示音：assets/男人man1_爱给网_aigei_com.mp3
-  //  - 结束/绝杀结算音：assets/曼巴熬.mp4
-  var checkAudio = null;
-  try {
-    checkAudio = new Audio('assets/男人man1_爱给网_aigei_com.mp3');
-    checkAudio.preload = 'auto';
-  } catch (e) { checkAudio = null; }
-
-  var checkmateAudio = null;
-  try {
-    checkmateAudio = new Audio('assets/曼巴熬.mp4');
-    checkmateAudio.preload = 'auto';
-  } catch (e) { checkmateAudio = null; }
 
   function ensure() {
     if (ctx) {
@@ -53,7 +39,7 @@
     osc.start(t0); osc.stop(t0 + opt.dur + 0.02);
   }
 
-  // 噪声爆裂（用于吃子金属感）
+  // 噪声爆裂（用于吃子金属感 / 冲击）
   function noise(opt) {
     if (muted || !ensure()) return;
     var t0 = ctx.currentTime + (opt.delay || 0);
@@ -81,34 +67,23 @@
       tone({ freq: 190, freqEnd: 60, dur: 0.14, type: 'sawtooth', gain: 0.28 });
       tone({ freq: 300, freqEnd: 110, dur: 0.11, type: 'square', gain: 0.16, delay: 0.05 });
     },
-    check: function () {
-      // 将军提示音：优先播放 assets/男人man1_爱给网_aigei_com.mp3，其余音效保持合成
+    // 将军（check）：合成警报音 —— 两声快速上行的尖锐方波 + 攻击瞬噪，营造"被将"的紧迫感
+    '将军': function () {
       if (muted) return;
-      if (checkAudio) {
-        try {
-          checkAudio.currentTime = 0;
-          var pr = checkAudio.play();
-          if (pr && pr.catch) pr.catch(function () {});
-          return;
-        } catch (e) { /* 音频播放失败则回退到合成音 */ }
-      }
-      // 回退：音频不可用时仍用合成音，保证有将军提示
-      tone({ freq: 880, dur: 0.12, type: 'sawtooth', gain: 0.25 });
-      tone({ freq: 1175, dur: 0.14, type: 'sawtooth', gain: 0.25, delay: 0.12 });
+      tone({ freq: 660, freqEnd: 880, dur: 0.09, type: 'square', gain: 0.22 });
+      tone({ freq: 880, freqEnd: 1175, dur: 0.11, type: 'square', gain: 0.24, delay: 0.09 });
+      noise({ freq: 3500, dur: 0.025, gain: 0.06 });
     },
-    checkmate: function () {
-      // 结束/绝杀结算音频：优先播放曼巴熬.mp4；文件缺失/播放失败时回退到胜利合成音
+    check: function () { SOUNDS['将军'](); },
+    // 绝杀（checkmate）：合成终结音 —— 下劈扫频 + 冲击噪声 + 低频轰鸣 + 收束音，体现"绝杀"的决断
+    '绝杀': function () {
       if (muted) return;
-      if (checkmateAudio) {
-        try {
-          checkmateAudio.currentTime = 0;
-          var pr = checkmateAudio.play();
-          if (pr && pr.catch) pr.catch(function () {});
-          return;
-        } catch (e) { /* 回退到合成音 */ }
-      }
-      SOUNDS.win();
+      tone({ freq: 1200, freqEnd: 200, dur: 0.22, type: 'sawtooth', gain: 0.30 });
+      noise({ freq: 1500, dur: 0.18, gain: 0.32 });
+      tone({ freq: 130, freqEnd: 70, dur: 0.20, type: 'sine', gain: 0.30, delay: 0.04 });
+      tone({ freq: 523, dur: 0.26, type: 'triangle', gain: 0.20, delay: 0.10 });
     },
+    checkmate: function () { SOUNDS['绝杀'](); },
     win: function () {
       [523, 659, 784, 1047].forEach(function (f, i) {
         tone({ freq: f, dur: 0.22, type: 'triangle', gain: 0.3, delay: i * 0.12 });
@@ -127,8 +102,6 @@
     // 首次交互时调用，解锁音频
     unlock: function () {
       ensure();
-      if (checkAudio) { try { checkAudio.load(); } catch (e) {} }
-      if (checkmateAudio) { try { checkmateAudio.load(); } catch (e) {} }
     },
     play: function (name) { if (SOUNDS[name]) SOUNDS[name](); },
     setMuted: function (m) { muted = !!m; },
