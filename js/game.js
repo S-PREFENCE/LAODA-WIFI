@@ -121,7 +121,7 @@
       this.humanSide = 'red'; this.aiSide = 'black';
       this.turn = 'red';
       this.resetRound();
-      this.message = '第' + id + '关 · ' + lv.name + '（红先胜）';
+      this.message = '第' + id + '关 · ' + lv.name + (lv.redMustWin === false ? '（红先和）' : '（红先胜）');
       this.messageType = '';
       this.render();
     },
